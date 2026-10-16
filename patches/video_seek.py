@@ -1,8 +1,14 @@
-"""Patch recognize_backend classifiers/video.py: grab the 16 sampled frames by seeking to each one instead of decoding
-the whole video front to back (and decoding it twice when the container has no frame count). Upstream decodes every
-frame on the CPU to keep 16, so long videos took up to ~50 s each with all cores busy and the GPU idle. Seeking decodes
-only from the keyframe before each sample. Same frame indices as upstream; falls back to the upstream sequential
-read if seeking fails. Fails the build if upstream changed."""
+"""Patch recognize_backend classifiers/video.py: read the 16 sampled frames cheaply instead of decoding the whole video
+front to back (and decoding it twice when the container has no frame count). Upstream decodes every frame on the CPU
+to keep 16, so long videos took up to ~50 s each with all cores busy and the GPU idle.
+
+* Small clips (frames x pixels under RECOGNIZE_VIDEO_SEQUENTIAL_MPIX, default 500, about 8 s of 1080p) are read
+  front to back as upstream does. That is the cheapest way to get the exact frames.
+* Everything else seeks to each sample and decodes keyframes only, taking the keyframe at or before the sample when it
+  is within max(1 s, half the spacing between samples). Otherwise it decodes on to the exact sampled frame. Measured on
+  this workload: 3 s 4K clip 18 -> 2 CPU-s, 8 s 4K60 HEVC 78 -> 5 CPU-s (48 front to back).
+
+Falls back to the upstream sequential read if seeking fails. Fails the build if upstream changed."""
 import sys
 p = sys.argv[1]
 s = open(p).read()
@@ -10,7 +16,10 @@ s = open(p).read()
 old = "def _read_frames(path: str, num_samples: int) -> np.ndarray:\n"
 if s.count(old) != 1:
     sys.exit("video_seek patch: _read_frames not found exactly once")
-s = s.replace(old, '''def _read_frames(path: str, num_samples: int) -> np.ndarray:
+s = s.replace(old, '''SEQUENTIAL_MPIX = float(os.environ.get("RECOGNIZE_VIDEO_SEQUENTIAL_MPIX", "500"))
+
+
+def _read_frames(path: str, num_samples: int) -> np.ndarray:
     try:
         return _read_frames_seek(path, num_samples)
     except Exception:
@@ -38,20 +47,31 @@ def _read_frames_seek(path: str, num_samples: int) -> np.ndarray:
             else:
                 raise ValueError("no frame count or duration")
             total = int(seconds * fps)
-        if total <= num_samples:
-            raise ValueError("short video, sequential read is cheap")
+        ctx = stream.codec_context
+        if total <= num_samples or total * ctx.width * ctx.height < SEQUENTIAL_MPIX * 1e6:
+            raise ValueError("small video, sequential read is cheaper")
+        tolerance = max(1.0, 0.5 * total / num_samples / fps)
         start = stream.start_time or 0
         out = []
         for idx in _sample_indices(total, num_samples):
             target = idx / fps
             container.seek(start + int(target / tb), stream=stream, backward=True, any_frame=False)
+            ctx.skip_frame = "NONKEY"
+            keyframes_only = True
             picked = None
             for frame in container.decode(stream):
                 if frame.pts is None:
                     continue
                 picked = frame
-                if float((frame.pts - start) * tb) >= target - 0.5 / fps:
+                t = float((frame.pts - start) * tb)
+                if keyframes_only:
+                    if target - t <= tolerance:
+                        break
+                    ctx.skip_frame = "DEFAULT"  # keyframe too far back: decode on to the exact frame
+                    keyframes_only = False
+                if t >= target - 0.5 / fps:
                     break
+            ctx.skip_frame = "DEFAULT"
             if picked is None:
                 raise ValueError("seek decoded nothing")
             out.append(picked.to_ndarray(format="rgb24"))

@@ -30,6 +30,7 @@ RUN python3 /tmp/patches/prefetch.py /app/lib/main.py \
  && python3 /tmp/patches/idle_unload.py /app/lib/main.py \
  && python3 /tmp/patches/lean_vram.py /app/lib/main.py \
  && python3 /tmp/patches/video_seek.py /app/lib/classifiers/video.py \
+ && python3 /tmp/patches/video_ahead.py /app/lib/classifiers/video.py \
  && python3 /tmp/patches/audio_clip.py /app/lib/classifiers/audio.py \
  && python3 /tmp/patches/fix_ocs_error.py /app/lib/ocs.py \
  && rm -rf /tmp/patches

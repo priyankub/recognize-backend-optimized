@@ -1,6 +1,8 @@
 """Patch recognize_backend main.py: download the next RECOGNIZE_PREFETCH (default 8) task files in parallel while
 the current one is classified. Upstream downloads and classifies strictly one file at a time, so with multi-MB
-photos the GPU sat ~90% idle waiting on HTTP. Results stay in input order. Fails the build if upstream changed."""
+photos the GPU sat ~90% idle waiting on HTTP. Results stay in input order. A classifier module may define
+prepare(path), which runs in the download thread (video decodes ahead this way). Temp files left by a restart
+mid-task are removed at startup. Fails the build if upstream changed."""
 import hashlib
 import sys
 
@@ -13,6 +15,22 @@ if hashlib.sha256(s[a:b].encode()).hexdigest() != "8ab9f4bcfce2f2fdd87178a78441f
 
 new = '''PREFETCH = max(1, int(os.environ.get("RECOGNIZE_PREFETCH", "8")))
 _THREAD_NC = threading.local()
+
+
+def _remove_stale_temp_files() -> None:
+    """Downloads of a task interrupted by a restart are never deleted. Nothing is in flight at startup, so clear them."""
+    import glob
+    import tempfile
+
+    for f in glob.glob(os.path.join(tempfile.gettempdir(), "tmp*")):
+        try:
+            if os.path.isfile(f):
+                os.remove(f)
+        except OSError:
+            pass
+
+
+_remove_stale_temp_files()
 
 
 def _thread_nc() -> NextcloudApp:
@@ -37,8 +55,13 @@ def process_task(task: dict, task_type: str) -> dict:
     futures: dict = {}
     next_i = 0
 
+    prepare = getattr(TASK_TYPES[task_type], "prepare", None)
+
     def fetch(file_id):
-        return get_file(_thread_nc(), task["id"], int(file_id))
+        path = get_file(_thread_nc(), task["id"], int(file_id))
+        if prepare is not None:
+            prepare(path)  # e.g. decode a video while the previous file is classified
+        return path
 
     with ThreadPoolExecutor(max_workers=PREFETCH) as pool:
         try:
