@@ -21,6 +21,7 @@ so a new upstream version can't be patched silently and wrongly.
 | `video_ahead.py` | Each video is decoded on the main thread just before classification, so the GPU waits | Videos are decoded and preprocessed in the download threads, N at a time, while the GPU works |
 | `audio_clip.py` | Whole audio files are decoded into RAM; a 25 h audiobook grew the process to ~70 GB | Decodes only the first N seconds (the model looks at ~10 s) |
 | `fix_ocs_error.py` | A failed file download raised `'LookupDict' object is not callable` | The real HTTP status is reported |
+| `enabled_retry.py` | If Nextcloud was not up when the container started, the app never picked up tasks until restarted | The app keeps asking Nextcloud every minute until it reports the app as enabled |
 
 ## Settings
 

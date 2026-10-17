@@ -33,4 +33,5 @@ RUN python3 /tmp/patches/prefetch.py /app/lib/main.py \
  && python3 /tmp/patches/video_ahead.py /app/lib/classifiers/video.py \
  && python3 /tmp/patches/audio_clip.py /app/lib/classifiers/audio.py \
  && python3 /tmp/patches/fix_ocs_error.py /app/lib/ocs.py \
+ && python3 /tmp/patches/enabled_retry.py /app/lib/main.py \
  && rm -rf /tmp/patches
