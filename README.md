@@ -17,6 +17,7 @@ so a new upstream version can't be patched silently and wrongly.
 | `prefetch.py` | Files are downloaded and classified strictly one at a time; the GPU waits on HTTP | Next N files download in parallel (about 1.6x faster on multi-MB photos); temp files left by a restart are removed at startup |
 | `idle_unload.py` | Models stay in VRAM forever | Models unload after a quiet period and reload on the next task |
 | `lean_vram.py` | Every model ever loaded stays resident (images + faces + video ≈ 6.5 GB) | At most N models (LRU); video and audio models drop after each task; PyTorch's VRAM cache is freed per task |
+| `oom_retry.py` | Any error mentioning CUDA, including a passing out-of-memory while another GPU app (e.g. Ollama) holds VRAM, switches the worker to CPU until restarted | Out-of-memory frees the other models, waits and retries the same file on the GPU; if VRAM stays short the task fails rather than returning empty results |
 | `video_seek.py` | Whole videos are decoded on the CPU to keep 16 frames (up to ~50 s per video) | Small clips are read front to back; larger ones seek and decode only the keyframe nearest each sample (4K: ~20-75 CPU-s down to ~2-6 per video) |
 | `video_ahead.py` | Each video is decoded on the main thread just before classification, so the GPU waits | Videos are decoded and preprocessed in the download threads, N at a time, while the GPU works |
 | `audio_clip.py` | Whole audio files are decoded into RAM; a 25 h audiobook grew the process to ~70 GB | Decodes only the first N seconds (the model looks at ~10 s) |
@@ -32,6 +33,7 @@ so a new upstream version can't be patched silently and wrongly.
 | `RECOGNIZE_IDLE_UNLOAD_SECONDS` | `600` | Unload all models after this long without tasks; `0` keeps them |
 | `RECOGNIZE_MAX_LOADED_MODELS` | `3` | Most models held at once, least recently used evicted |
 | `RECOGNIZE_TRANSIENT_MODELS` | `video,audio` | Models unloaded right after each of their tasks |
+| `RECOGNIZE_OOM_WAITS` | `30,60,120,300,600,900` | Seconds to wait before each retry after a GPU out-of-memory |
 | `RECOGNIZE_AUDIO_MAX_SECONDS` | `30` | Seconds of audio decoded per file; `0` decodes the whole file |
 | `RECOGNIZE_VIDEO_DECODE_WORKERS` | `4` | Videos decoded ahead at once |
 | `RECOGNIZE_VIDEO_SEQUENTIAL_MPIX` | `500` | Videos under this many frames x megapixels (~8 s of 1080p) are read front to back instead of seeking |

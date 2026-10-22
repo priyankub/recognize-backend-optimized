@@ -24,11 +24,12 @@ RUN python3 -m pip install pillow-heif && rm -rf /root/.cache \
     > /usr/local/lib/python3.10/dist-packages/zz_heif_opener.pth
 
 # Source patches. Each one checks its anchor in the upstream code and fails the build if upstream changed.
-# Order matters: idle_unload before lean_vram (lean_vram builds on it).
+# Order matters: idle_unload, then lean_vram, then oom_retry (each builds on the previous).
 COPY patches/ /tmp/patches/
 RUN python3 /tmp/patches/prefetch.py /app/lib/main.py \
  && python3 /tmp/patches/idle_unload.py /app/lib/main.py \
  && python3 /tmp/patches/lean_vram.py /app/lib/main.py \
+ && python3 /tmp/patches/oom_retry.py /app/lib/main.py \
  && python3 /tmp/patches/video_seek.py /app/lib/classifiers/video.py \
  && python3 /tmp/patches/video_ahead.py /app/lib/classifiers/video.py \
  && python3 /tmp/patches/audio_clip.py /app/lib/classifiers/audio.py \
